@@ -1,5 +1,103 @@
 import numpy as np
-from typing import Generator, Dict, Any
+from typing import Generator, Dict, Any, Tuple
+
+def rotation_matrix_from_euler(phi: float, theta: float, psi: float) -> np.ndarray:
+    """
+    Compute the rotation matrix from 3-2-1 Euler angles (roll, pitch, yaw).
+    Convention: x forward, y right, z down.
+    """
+    cphi, sphi = np.cos(phi), np.sin(phi)
+    ctheta, stheta = np.cos(theta), np.sin(theta)
+    cpsi, spsi = np.cos(psi), np.sin(psi)
+    R = np.array([
+        [ctheta * cpsi, sphi * stheta * cpsi - cphi * spsi, cphi * stheta * cpsi + sphi * spsi],
+        [ctheta * spsi, sphi * stheta * spsi + cphi * cpsi, cphi * stheta * spsi - sphi * cpsi],
+        [-stheta, sphi * ctheta, cphi * ctheta]
+    ])
+    return R
+
+def translational_dynamics_generator(
+    initial_r: Tuple[float, float, float],
+    initial_v: Tuple[float, float, float],
+    p: float,
+    q: float,
+    r: float,
+    phi: float,
+    theta: float,
+    psi: float,
+    g: float,
+    m: float,
+    T: float,
+    D: float,
+    L: float,
+    alpha: float,
+    Y: float,
+    Z: float,
+    dt: float,
+    num_steps: int = None
+) -> Generator[Dict[str, np.ndarray], None, None]:
+    """
+    Generator for simulating translational dynamics (position and velocity) using Euler integration.
+    
+    This implements the body-frame acceleration equations:
+    
+    \dot{u} = r v - q w - g \sin \theta + T/m - (D/m) \cos \alpha - (L/m) \sin \alpha
+    \dot{v} = p w - r u + g \sin \phi \cos \theta - Y/m
+    \dot{w} = q u - p v + g \cos \phi \cos \theta - Z/m
+    
+    And inertial position update:
+    \dot{\mathbf{r}} = \mathbf{R}(\phi, \theta, \psi) \mathbf{v}
+    
+    Assumes fixed angular rates (p, q, r) and Euler angles (\phi, \theta, \psi) for this translational-only simulation.
+    For a full 6DOF sim, these would be updated separately and passed anew each step.
+    
+    Yields a dict with 'r' (inertial position [x, y, z]) and 'v' (body velocity [u, v, w]) at each time step.
+    
+    Args:
+        initial_r: Initial inertial position (x, y, z)
+        initial_v: Initial body velocity (u, v, w)
+        p, q, r: Angular rates (roll, pitch, yaw)
+        phi, theta, psi: Euler angles (roll, pitch, yaw)
+        g: Gravity acceleration (m/s²)
+        m: Mass (kg)
+        T: Thrust (N, along body x)
+        D: Drag magnitude (N)
+        L: Lift magnitude (N)
+        alpha: Angle of attack (rad)
+        Y: Side force (N, body y)
+        Z: Normal force (N, body z, positive down)
+        dt: Time increment (s)
+        num_steps: Number of steps (default infinite; break externally if needed)
+    
+    Example usage:
+        gen = translational_dynamics_generator([0,0,0], [0,0,0], 0,0,0, 0,0,0, 9.81, 1.0, 10.0, 0.1, 0.1, 0.1, 0,0, 0.1)
+        for i, state in enumerate(gen):
+            print(f"Step {i}: position={state['r']}, velocity={state['v']}")
+            if i >= 4: break
+    """
+    current_r = np.array(initial_r, dtype=float)
+    current_v = np.array(initial_v, dtype=float)
+    step = 0
+    while num_steps is None or step < num_steps:
+        # Body-frame accelerations
+        u, v_b, w = current_v  # v_b to avoid name conflict
+        du = r * v_b - q * w - g * np.sin(theta) + T / m - (D / m) * np.cos(alpha) - (L / m) * np.sin(alpha)
+        dv = p * w - r * u + g * np.sin(phi) * np.cos(theta) - Y / m
+        dw = q * u - p * v_b + g * np.cos(phi) * np.cos(theta) - Z / m
+        dot_v = np.array([du, dv, dw])
+        v_new = current_v + dot_v * dt
+        
+        # Inertial position rate
+        R = rotation_matrix_from_euler(phi, theta, psi)
+        dot_r = R @ current_v
+        r_new = current_r + dot_r * dt
+        
+        # Update
+        current_r = r_new
+        current_v = v_new
+        
+        yield {'r': r_new.copy(), 'v': v_new.copy()}
+        step += 1
 
 def apogee_calculation_generator(
     initial_z: float,
@@ -99,7 +197,13 @@ def apogee_calculation_generator(
             break
 
 if __name__ == "__main__":
+    gen_translation = translational_dynamics_generator([0,0,0], [0,0,0], 0,0,0, 0,0,0, 9.81, 1.0, 10.0, 0.1, 0.1, 0.1, 0,0, 0.1)
     gen_apogee = apogee_calculation_generator(0.0, 50.0, 9.81, 0.5, 0.0, 2.0, 0.0, 0.0, 0.1)
+
+    print("Generating translational changes...")
+    for i, state in enumerate(gen_translation):
+        print(f"Step {i}: position={state['r']}, velocity={state['v']}")
+        if i >= 4: break
 
     print("Generating apogee...")
     apogee_z = None
