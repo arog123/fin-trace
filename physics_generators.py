@@ -99,6 +99,92 @@ def translational_dynamics_generator(
         yield {'r': r_new.copy(), 'v': v_new.copy()}
         step += 1
 
+def quaternion_dot(q: np.ndarray, omega: np.ndarray) -> np.ndarray:
+    """
+    Compute the time derivative of the quaternion using angular rates.
+    
+    \dot{q} = 1/2 * [ -omega × q ] in vector form, or explicit components.
+    """
+    qw, qx, qy, qz = q
+    p, q_rate, r = omega  # q_rate to avoid name conflict with quaternion q
+    dq_w = -0.5 * (qx * p + qy * q_rate + qz * r)
+    dq_x =  0.5 * (qw * p - qz * q_rate + qy * r)
+    dq_y =  0.5 * ( qz * p + qw * q_rate - qx * r)
+    dq_z =  0.5 * (-qy * p + qx * q_rate + qw * r)
+    return np.array([dq_w, dq_x, dq_y, dq_z])
+
+def rotational_dynamics_generator(
+    initial_omega: Tuple[float, float, float],
+    initial_q: Tuple[float, float, float, float],
+    Ixx: float,
+    Iyy: float,
+    Izz: float,
+    L: float,
+    M: float,
+    N: float,
+    dt: float,
+    num_steps: int = None
+) -> Generator[Dict[str, np.ndarray], None, None]:
+    """
+    Generator for simulating rotational dynamics (angular rates and attitude) using Euler integration.
+    
+    This implements the angular acceleration equations:
+    
+    \dot{p} = \frac{(I_{yy} - I_{zz}) q r}{I_{xx}} + \frac{L}{I_{xx}}
+    \dot{q} = \frac{(I_{zz} - I_{xx}) p r}{I_{yy}} + \frac{M}{I_{yy}}
+    \dot{r} = \frac{(I_{xx} - I_{yy}) p q}{I_{zz}} + \frac{N}{I_{zz}}
+    
+    And quaternion kinematics:
+    \dot{\mathbf{q}} = \frac{1}{2} \Omega(\boldsymbol{\omega}) \mathbf{q}
+    
+    Assumes fixed moments (L, M, N) for this rotational-only simulation.
+    For a full 6DOF sim, these would be updated separately and passed anew each step.
+    Quaternion is normalized after each update to maintain unit length.
+    
+    Yields a dict with 'omega' (body angular rates [p, q, r]) and 'q' (quaternion [q_w, q_x, q_y, q_z]) at each time step.
+    
+    Args:
+        initial_omega: Initial angular rates (p, q, r) in rad/s
+        initial_q: Initial quaternion (q_w, q_x, q_y, q_z), assumed unit norm
+        Ixx, Iyy, Izz: Principal moments of inertia (kg·m²)
+        L, M, N: Aerodynamic moments (roll, pitch, yaw) in N·m
+        dt: Time increment (s)
+        num_steps: Number of steps (default infinite; break externally if needed)
+    
+    Example usage:
+        gen = rotational_dynamics_generator([0,0,0], [1,0,0,0], 0.001, 0.001, 0.001, 0.01, 0.01, 0.01, 0.1)
+        for i, state in enumerate(gen):
+            print(f"Step {i}: omega={state['omega']}, q={state['q']}")
+            if i >= 4: break
+    """
+    current_omega = np.array(initial_omega, dtype=float)
+    current_q = np.array(initial_q, dtype=float)
+    # Ensure initial quaternion is normalized
+    current_q /= np.linalg.norm(current_q)
+    step = 0
+    while num_steps is None or step < num_steps:
+        p, q_rate, r = current_omega  # q_rate to avoid name conflict
+        
+        # Angular accelerations
+        dp = ((Iyy - Izz) * q_rate * r) / Ixx + L / Ixx
+        dq = ((Izz - Ixx) * p * r) / Iyy + M / Iyy
+        dr = ((Ixx - Iyy) * p * q_rate) / Izz + N / Izz
+        dot_omega = np.array([dp, dq, dr])
+        omega_new = current_omega + dot_omega * dt
+        
+        # Quaternion update
+        dot_q = quaternion_dot(current_q, current_omega)
+        q_new = current_q + dot_q * dt
+        # Normalize
+        q_new /= np.linalg.norm(q_new)
+        
+        # Update
+        current_omega = omega_new
+        current_q = q_new
+        
+        yield {'omega': omega_new.copy(), 'q': q_new.copy()}
+        step += 1
+
 def apogee_calculation_generator(
     initial_z: float,
     initial_w: float,
@@ -198,11 +284,17 @@ def apogee_calculation_generator(
 
 if __name__ == "__main__":
     gen_translation = translational_dynamics_generator([0,0,0], [0,0,0], 0,0,0, 0,0,0, 9.81, 1.0, 10.0, 0.1, 0.1, 0.1, 0,0, 0.1)
+    gen_rotation = rotational_dynamics_generator([0,0,0], [1,0,0,0], 0.001, 0.001, 0.001, 0.01, 0.01, 0.01, 0.1)
     gen_apogee = apogee_calculation_generator(0.0, 50.0, 9.81, 0.5, 0.0, 2.0, 0.0, 0.0, 0.1)
 
     print("Generating translational changes...")
     for i, state in enumerate(gen_translation):
         print(f"Step {i}: position={state['r']}, velocity={state['v']}")
+        if i >= 4: break
+
+    print("Generating rotational changes...")
+    for i, state in enumerate(gen_rotation):
+        print(f"Step {i}: omega={state['omega']}, q={state['q']}")
         if i >= 4: break
 
     print("Generating apogee...")
