@@ -185,6 +185,123 @@ def rotational_dynamics_generator(
         yield {'omega': omega_new.copy(), 'q': q_new.copy()}
         step += 1
 
+def aero_forces_moments_generator(
+    initial_v: Tuple[float, float, float],
+    delta_p: float,
+    delta_y: float,
+    delta_r: float,
+    rho: float,
+    S: float,
+    l_ref: float,
+    C_D0: float,
+    C_Lalpha: float,
+    C_Ybeta: float,
+    C_Zalpha: float,
+    C_ldelta_r: float,
+    C_malpha: float,
+    C_mdelta_p: float,
+    C_nbeta: float,
+    C_ndelta_y: float,
+    dt: float,
+    num_steps: int = None
+) -> Generator[Dict[str, Any], None, None]:
+    """
+    Generator for computing aerodynamic forces and moments, including fin control effects, at each time step.
+    
+    This computes based on current body velocities [u, v, w]:
+    - V = ||v||
+    - alpha ≈ atan2(w, u)
+    - beta ≈ atan2(v, u)
+    
+    Forces:
+    - D = q * S * C_D0  (base drag; induced drag omitted for simplicity)
+    - L = q * S * C_Lalpha * (alpha + delta_p)
+    - Y = q * S * C_Ybeta * (beta + delta_y)
+    - Z = q * S * C_Zalpha * (alpha + delta_p)
+    
+    Moments (roll L, pitch M, yaw N):
+    - L_mom = q * S * l_ref * C_ldelta_r * delta_r
+    - M = q * S * l_ref * (C_malpha * alpha + C_mdelta_p * delta_p)
+    - N = q * S * l_ref * (C_nbeta * beta + C_ndelta_y * delta_y)
+    
+    Where q = 0.5 * rho * V**2.
+    
+    Assumes fixed initial_v and fin deflections (delta_p, delta_y, delta_r) for this aero-only computation.
+    In a full 6DOF sim, pass updated v and deltas each step externally.
+    Yields a dict with 'forces' (dict of D, L, Y, Z), 'moments' (dict of L, M, N), 'alpha', 'beta', 'V' at each step.
+    Values are constant across steps since no state update here.
+    
+    Typical parameters for model rocket:
+    - C_D0 ≈ 0.3–0.75
+    - C_Lalpha ≈ 3–5 /rad
+    - C_Ybeta ≈ 3–5 /rad
+    - C_Zalpha ≈ -C_Lalpha (for z-down convention)
+    - C_ldelta_r ≈ 0.1–0.5 /rad
+    - C_malpha ≈ -5–10 /rad (negative for stability)
+    - C_mdelta_p ≈ -1–2 /rad
+    - C_nbeta ≈ C_malpha
+    - C_ndelta_y ≈ C_mdelta_p
+    
+    Args:
+        initial_v: Initial/current body velocity (u, v, w) in m/s
+        delta_p, delta_y, delta_r: Fin deflection angles (pitch, yaw, roll) in rad
+        rho: Air density (kg/m³)
+        S: Reference area (m²)
+        l_ref: Reference length for moments (m)
+        C_D0: Base drag coefficient
+        C_Lalpha: Lift slope (1/rad)
+        C_Ybeta: Side force slope (1/rad)
+        C_Zalpha: Normal force slope (1/rad)
+        C_ldelta_r: Roll control derivative (1/rad)
+        C_malpha: Pitch stability derivative (1/rad)
+        C_mdelta_p: Pitch control derivative (1/rad)
+        C_nbeta: Yaw stability derivative (1/rad)
+        C_ndelta_y: Yaw control derivative (1/rad)
+        dt: Time increment (s, unused here but for consistency)
+        num_steps: Number of steps (default infinite)
+    
+    Example usage:
+        gen = aero_forces_moments_generator([100, 0, 5], 0.1, 0.05, 0.02, 1.225, 0.01, 0.1, 0.5, 4.0, 4.0, -4.0, 0.2, -6.0, -1.5, -6.0, -1.5, 0.1)
+        for i, aero in enumerate(gen):
+            print(f"Step {i}: D={aero['forces']['D']:.2f}, M={aero['moments']['M']:.2f}")
+            if i >= 4: break
+    """
+    current_v = np.array(initial_v, dtype=float)
+    step = 0
+    while num_steps is None or step < num_steps:
+        u, v_side, w = current_v  # v_side to avoid name conflict
+        V = np.linalg.norm(current_v)
+        if V < 1e-6:  # Avoid division by zero
+            yield {
+                'forces': {'D': 0.0, 'L': 0.0, 'Y': 0.0, 'Z': 0.0},
+                'moments': {'L': 0.0, 'M': 0.0, 'N': 0.0},
+                'alpha': 0.0, 'beta': 0.0, 'V': 0.0
+            }
+        else:
+            alpha = np.arctan2(w, u)
+            beta = np.arctan2(v_side, u)  # Approximation for small angles
+            q_dyn = 0.5 * rho * V**2
+            
+            # Forces
+            CD = C_D0
+            D = q_dyn * S * CD
+            L = q_dyn * S * C_Lalpha * (alpha + delta_p)
+            Y = q_dyn * S * C_Ybeta * (beta + delta_y)
+            Z = q_dyn * S * C_Zalpha * (alpha + delta_p)
+            
+            # Moments
+            L_mom = q_dyn * S * l_ref * C_ldelta_r * delta_r
+            M = q_dyn * S * l_ref * (C_malpha * alpha + C_mdelta_p * delta_p)
+            N = q_dyn * S * l_ref * (C_nbeta * beta + C_ndelta_y * delta_y)
+            
+            yield {
+                'forces': {'D': D, 'L': L, 'Y': Y, 'Z': Z},
+                'moments': {'L': L_mom, 'M': M, 'N': N},
+                'alpha': alpha, 'beta': beta, 'V': V
+            }
+        step += 1
+
+
 def apogee_calculation_generator(
     initial_z: float,
     initial_w: float,
@@ -285,6 +402,7 @@ def apogee_calculation_generator(
 if __name__ == "__main__":
     gen_translation = translational_dynamics_generator([0,0,0], [0,0,0], 0,0,0, 0,0,0, 9.81, 1.0, 10.0, 0.1, 0.1, 0.1, 0,0, 0.1)
     gen_rotation = rotational_dynamics_generator([0,0,0], [1,0,0,0], 0.001, 0.001, 0.001, 0.01, 0.01, 0.01, 0.1)
+    gen_forces = aero_forces_moments_generator([100, 0, 5], 0.1, 0.05, 0.02, 1.225, 0.01, 0.1, 0.5, 4.0, 4.0, -4.0, 0.2, -6.0, -1.5, -6.0, -1.5, 0.1)
     gen_apogee = apogee_calculation_generator(0.0, 50.0, 9.81, 0.5, 0.0, 2.0, 0.0, 0.0, 0.1)
 
     print("Generating translational changes...")
@@ -295,6 +413,11 @@ if __name__ == "__main__":
     print("Generating rotational changes...")
     for i, state in enumerate(gen_rotation):
         print(f"Step {i}: omega={state['omega']}, q={state['q']}")
+        if i >= 4: break
+
+    print("Generating aerodynamic forces...")
+    for i, aero in enumerate(gen_forces):
+        print(f"Step {i}: D={aero['forces']['D']:.2f}, M={aero['moments']['M']:.2f}")
         if i >= 4: break
 
     print("Generating apogee...")
