@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import ttk
+import numpy as np
+from waypoints import generate_waypoints
 
 # GUI for input parameters
 class RocketSimulatorGUI:
@@ -59,13 +61,33 @@ def generate_attitude_plot() -> None:
 
 def generate_trajectory_plot() -> None:
     """Generate 3D trajectory plot."""
-    # TODO: Get waypoints and plot them on 3D Trajectory Graph
+    
+    WAYPOINTS = np.array(list(generate_waypoints(waypoint_type='vertical', max_height=800.0, n_points=8)))
+    current_waypoint_index = 0
+    waypoint_capture_radius = 10.0  # Distance to consider waypoint "reached" [m]
+
+    print("=== WAYPOINT MISSION ===")
+    print(f"Generated {len(WAYPOINTS)} waypoints in vertical pattern")
+    for i, wp in enumerate(WAYPOINTS):
+        print(f"WP{i+1}: ({wp[0]:.1f}, {wp[1]:.1f}, {wp[2]:.1f}) m")
+
     print("Displaying Plot 2: 3D Trajectory...")
     fig2 = plt.figure(figsize=(14, 12), num=2)
     ax3d = fig2.add_subplot(111, projection='3d')
+
+    waypoints_reached = [j[1] for j in WAYPOINTS]
+    for i, wp in enumerate(WAYPOINTS):
+        color, marker = ('red', 'X')
+        ax3d.scatter(wp[0], wp[1], wp[2], color=color, s=400, marker=marker, alpha=0.9, 
+                        edgecolors='darkgreen' if i in waypoints_reached else 'darkred', linewidth=3,
+                        label='Reached WP' if i in waypoints_reached and len([idx for idx in waypoints_reached if idx == i]) == 1 else 'Target WP' if i == waypoints_reached[-1] + 1 else "")
+        ax3d.text(wp[0] + 15, wp[1] + 15, wp[2] + 25, f'WP{i+1}\n({wp[2]:.0f}m)', 
+                    fontsize=11, ha='center', weight='bold', bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8))
+    ax3d.plot([0, 0], [0, 0], [0, np.max(WAYPOINTS[:, 2])], 'k--', alpha=0.7, linewidth=3, label='Planned Vertical Path')
+
     try:
         x_range = 50
-        z_max = 1000 # TODO: make change to this value possible or set to just bigger than highest waypoint
+        z_max = np.max(WAYPOINTS[:, 2]) * 1.1
         ax3d.set_xlim(-x_range, x_range)
         ax3d.set_ylim(-x_range, x_range)
         ax3d.set_zlim(0, z_max)
@@ -101,8 +123,6 @@ def generate_velocity_altitude_plot() -> None:
     ax_alt.set_xlim(0, 5)
     ax_alt.set_ylim(0, 20)
     plt.tight_layout()
-
-# TODO: Implement waypoint generation (might be in another file)
 
 def display_all_plots() -> None:
     """Display all generated plots and handle interaction."""
