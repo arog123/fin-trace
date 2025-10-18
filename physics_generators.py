@@ -39,16 +39,9 @@ def translational_dynamics_generator(
     """
     Generator for simulating translational dynamics (position and velocity) using Euler integration.
     
-    This implements the body-frame acceleration equations:
+    This implements body-frame acceleration equations and inertial position update.
     
-    \dot{u} = r v - q w - g \sin \theta + T/m - (D/m) \cos \alpha - (L/m) \sin \alpha
-    \dot{v} = p w - r u + g \sin \phi \cos \theta - Y/m
-    \dot{w} = q u - p v + g \cos \phi \cos \theta - Z/m
-    
-    And inertial position update:
-    \dot{\mathbf{r}} = \mathbf{R}(\phi, \theta, \psi) \mathbf{v}
-    
-    Assumes fixed angular rates (p, q, r) and Euler angles (\phi, \theta, \psi) for this translational-only simulation.
+    Assumes fixed angular rates (p, q, r) and Euler angles (phi, theta, psi) for this translational-only simulation.
     For a full 6DOF sim, these would be updated separately and passed anew each step.
     
     Yields a dict with 'r' (inertial position [x, y, z]) and 'v' (body velocity [u, v, w]) at each time step.
@@ -101,9 +94,7 @@ def translational_dynamics_generator(
 
 def quaternion_dot(q: np.ndarray, omega: np.ndarray) -> np.ndarray:
     """
-    Compute the time derivative of the quaternion using angular rates.
-    
-    \dot{q} = 1/2 * [ -omega × q ] in vector form, or explicit components.
+    Compute the time derivative of the quaternion using angular rates in vector form, or explicit components.
     """
     qw, qx, qy, qz = q
     p, q_rate, r = omega  # q_rate to avoid name conflict with quaternion q
@@ -128,14 +119,7 @@ def rotational_dynamics_generator(
     """
     Generator for simulating rotational dynamics (angular rates and attitude) using Euler integration.
     
-    This implements the angular acceleration equations:
-    
-    \dot{p} = \frac{(I_{yy} - I_{zz}) q r}{I_{xx}} + \frac{L}{I_{xx}}
-    \dot{q} = \frac{(I_{zz} - I_{xx}) p r}{I_{yy}} + \frac{M}{I_{yy}}
-    \dot{r} = \frac{(I_{xx} - I_{yy}) p q}{I_{zz}} + \frac{N}{I_{zz}}
-    
-    And quaternion kinematics:
-    \dot{\mathbf{q}} = \frac{1}{2} \Omega(\boldsymbol{\omega}) \mathbf{q}
+    This implements angular acceleration equations and quaternion kinematics
     
     Assumes fixed moments (L, M, N) for this rotational-only simulation.
     For a full 6DOF sim, these would be updated separately and passed anew each step.
@@ -232,13 +216,13 @@ def aero_forces_moments_generator(
     Values are constant across steps since no state update here.
     
     Typical parameters for model rocket:
-    - C_D0 ≈ 0.3–0.75
-    - C_Lalpha ≈ 3–5 /rad
-    - C_Ybeta ≈ 3–5 /rad
+    - C_D0 ≈ 0.3-0.75
+    - C_Lalpha ≈ 3-5 /rad
+    - C_Ybeta ≈ 3-5 /rad
     - C_Zalpha ≈ -C_Lalpha (for z-down convention)
-    - C_ldelta_r ≈ 0.1–0.5 /rad
-    - C_malpha ≈ -5–10 /rad (negative for stability)
-    - C_mdelta_p ≈ -1–2 /rad
+    - C_ldelta_r ≈ 0.1-0.5 /rad
+    - C_malpha ≈ -5-10 /rad (negative for stability)
+    - C_mdelta_p ≈ -1-2 /rad
     - C_nbeta ≈ C_malpha
     - C_ndelta_y ≈ C_mdelta_p
     
@@ -318,8 +302,7 @@ def apogee_calculation_generator(
     """
     Generator for simulating vertical motion to calculate apogee (max altitude).
     
-    This is a simplified 1D vertical dynamics model (z-down convention, w positive down? Wait, adjust:
-    Actually, for rockets, z often up, w positive up. Here: assume z up, w positive up.
+    This is a simplified 1D vertical dynamics model (z-up convention, w positive up
     Adapted from translational eq for vertical (w dot = -g + (T - D cos alpha - L sin alpha)/m, but simplified.
     For coast: T=0, if alpha=0, L=0, then dot_w = -g - D/m (if D opposes motion).
     
@@ -329,8 +312,6 @@ def apogee_calculation_generator(
     
     For burn phase, set T >0; for coast, T=0.
     Drag D and lift L can be fixed or passed anew in full sim.
-    
-    Quick estimate on first yield if desired, but here focuses on simulation.
     
     Args:
         initial_z: Initial altitude (m, positive up)
