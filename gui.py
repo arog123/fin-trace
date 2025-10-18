@@ -1,18 +1,15 @@
-import numpy as np
 import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import ttk
 
-
-
 # GUI for input parameters
 class RocketSimulatorGUI:
-    def __init__(self, root):
+    def __init__(self, root) -> None:
         self.root = root
         self.root.title("Rocket Simulator")
         self.create_widgets()
     
-    def create_widgets(self):
+    def create_widgets(self) -> None:
         # Input fields for parameters
         params = [
             ("Rocket Length (m)", "3.0"),
@@ -36,41 +33,36 @@ class RocketSimulatorGUI:
         # Run button
         ttk.Button(self.root, text="Run Simulation", command=self.run_simulation).grid(row=len(params), column=0, columnspan=2, pady=10)
 
-    def run_simulation(self):
+    def run_simulation(self) -> None:
         generate_plots()
 
-# TODO: Implement waypoint generation (might be in another file)
-
-def generate_plots():
-
-    # Plotting
-    plt.ion()
+def generate_attitude_plot() -> None:
+    """Generate plot for attitude angles (roll, pitch, yaw)."""
     print("\nDisplaying Plot 1: Attitude Angles...")
     fig1, axs = plt.subplots(3, 1, figsize=(12, 10), num=1)
     fig1.suptitle('Rocket Attitude vs Time', fontsize=14)
     axs[0].set_ylabel('Roll Angle [°]')
-    axs[0].set_ylim(-359,359)
+    axs[0].set_ylim(-359, 359)
     axs[0].grid(True)
     axs[0].legend()
     axs[1].set_ylabel('Pitch Angle [°]')
-    axs[1].set_ylim(-45,45)
+    axs[1].set_ylim(-45, 45)
     axs[1].grid(True)
     axs[1].legend()
     axs[2].set_ylabel('Yaw Angle [°]')
     axs[2].set_xlabel('Time [s]')
-    axs[2].set_ylim(-45,45)
+    axs[2].set_ylim(-45, 45)
     axs[2].grid(True)
     axs[2].legend()
     plt.tight_layout()
-    plt.draw()
-    plt.pause(0.1)
 
+
+def generate_trajectory_plot() -> None:
+    """Generate 3D trajectory plot."""
     # TODO: Get waypoints and plot them on 3D Trajectory Graph
-
     print("Displaying Plot 2: 3D Trajectory...")
     fig2 = plt.figure(figsize=(14, 12), num=2)
     ax3d = fig2.add_subplot(111, projection='3d')
-
     try:
         x_range = 50
         z_max = 1000 # TODO: make change to this value possible or set to just bigger than highest waypoint
@@ -90,31 +82,49 @@ def generate_plots():
     ax3d.legend(loc='upper left', fontsize=11)
     ax3d.grid(True, alpha=0.4)
     ax3d.view_init(elev=20, azim=45)
-    plt.draw()
-    plt.pause(0.1)
 
+
+def generate_velocity_altitude_plot() -> None:
+    """Generate velocity and altitude plots."""
     print("Displaying Plot 3: Velocity and Altitude...")
     fig3, (ax_vel, ax_alt) = plt.subplots(2, 1, figsize=(12, 8), num=3)
     ax_vel.set_ylabel('Velocity [m/s]')
     ax_vel.legend()
     ax_vel.grid(True)
     ax_vel.set_title('Velocity Components vs Time')
-    ax_vel.set_ylim(0,15)
-    ax_vel.set_xlim(0,5)
+    ax_vel.set_ylim(0, 15)
+    ax_vel.set_xlim(0, 5)
     ax_alt.set_ylabel('Altitude [m]')
     ax_alt.set_xlabel('Time [s]')
     ax_alt.grid(True)
     ax_alt.set_title('Altitude vs Time')
-    ax_alt.set_xlim(0,5)
-    ax_alt.set_ylim(0,20)
+    ax_alt.set_xlim(0, 5)
+    ax_alt.set_ylim(0, 20)
     plt.tight_layout()
-    plt.draw()
-    plt.pause(0.1)
 
+# TODO: Implement waypoint generation (might be in another file)
+
+def display_all_plots() -> None:
+    """Display all generated plots and handle interaction."""
+    plt.ion()
+    
+    # Draw all existing figures
+    for fig_num in plt.get_fignums():
+        plt.figure(fig_num)
+        plt.draw()
+        plt.pause(0.1)
+    
     print("\nAll plots created! You can now interact with all three plot windows.")
     print("Close each plot window individually when you're done viewing them.")
+    
     plt.ioff()
     plt.show()
+
+def generate_plots() -> None:
+    generate_attitude_plot()
+    generate_trajectory_plot()
+    generate_velocity_altitude_plot()
+    display_all_plots()
 
 # Run GUI
 if __name__ == "__main__":
