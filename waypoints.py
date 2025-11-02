@@ -254,7 +254,7 @@ def generate_waypoints(
     yield from generators[waypoint_type]()
 
 if __name__ == "__main__":
-    print(generate_vertical_waypoints())
+    # print(generate_vertical_waypoints())
     # waypoints = generate_random_waypoints(max_height=800.0, n_points=8, seed=42)
     print(np.array(list(generate_random_waypoints(max_height=800.0, n_points=8, seed=42))))
     for waypoint in generate_random_waypoints(max_height=800.0, n_points=8, seed=42):
