@@ -6,7 +6,7 @@ from waypoints import generate_waypoints
 def generate_plots(params: SimulationParams) -> None:
     generate_attitude_plot()
     generate_trajectory_plot(params)
-    generate_velocity_altitude_plot()
+    generate_velocity_altitude_plot(params)
     display_all_plots()
 
 def generate_attitude_plot() -> None:
@@ -97,22 +97,60 @@ def generate_trajectory_plot(params: SimulationParams) -> None:
     ax3d.grid(True, alpha=0.4)
     ax3d.view_init(elev=20, azim=45)
 
-def generate_velocity_altitude_plot() -> None:
+def generate_velocity_altitude_plot(params: SimulationParams) -> None:
     """Generate velocity and altitude plots."""
     print("Displaying Plot 3: Velocity and Altitude...")
+    gen_apogee = simulator.run_full_simulation(params=params)
+    apogee_z = None
+    
+    # Collect data from generator
+    times = []
+    altitudes = []
+    velocities = []
+    
+    for state in gen_apogee:
+        # Deal with time restarting during transition from burn phase to coast phase
+        # TODO: Correct this issue in apogee_generator to have time consistency
+        if len(times) != 0:
+            if state['t'] <= times[-1]:
+                times.append(round(state['t'], 2) + times[-1])
+            else:
+                times.append(round(state['t'], 2))
+        else:
+            times.append(round(state['t'], 2))
+        altitudes.append(round(state['z'], 2))
+        velocities.append(round(state['w'], 2))
+        print(f"t={state['t']:.2f}s, z={state['z']:.2f}m, w={state['w']:.2f}m/s")
+        if state['apogee_reached']:
+            apogee_z = state['apogee_altitude']
+            break  # Stop here since apogee is the end goal
+    
     fig3, (ax_vel, ax_alt) = plt.subplots(2, 1, figsize=(12, 8), num=3)
+    
+    # Plot velocity
+    ax_vel.plot(times, velocities, 'b-', linewidth=2, label='Vertical Velocity')
+    ax_vel.axvline(x=params.burn_time, color='r', linestyle='--', alpha=0.5, label='Burn end')
     ax_vel.set_ylabel('Velocity [m/s]')
     ax_vel.legend()
     ax_vel.grid(True)
     ax_vel.set_title('Velocity Components vs Time')
-    ax_vel.set_ylim(0, 15)
-    ax_vel.set_xlim(0, 5)
+    ax_vel.set_ylim(min(velocities) * 1.1 if velocities else -5, max(velocities) * 1.1 if velocities else 15)
+    ax_vel.set_xlim(0, max(times) * 1.05 if times else 5)
+    
+    # Plot altitude
+    ax_alt.plot(times, altitudes, 'g-', linewidth=2, label='Altitude')
+    ax_alt.axvline(x=params.burn_time, color='r', linestyle='--', alpha=0.5, label='Burn end')
+    if apogee_z is not None:
+        apogee_idx = altitudes.index(max(altitudes))
+        ax_alt.scatter(times[apogee_idx], apogee_z, 
+                      color='red', s=200, marker='*', label=f'Apogee: {apogee_z:.1f}m')
     ax_alt.set_ylabel('Altitude [m]')
     ax_alt.set_xlabel('Time [s]')
+    ax_alt.legend()
     ax_alt.grid(True)
     ax_alt.set_title('Altitude vs Time')
-    ax_alt.set_xlim(0, 5)
-    ax_alt.set_ylim(0, 20)
+    ax_alt.set_xlim(0, max(times) * 1.05 if times else 5)
+    ax_alt.set_ylim(0, max(altitudes) * 1.1 if altitudes else 20)
     plt.tight_layout()
 
 def display_all_plots() -> None:
