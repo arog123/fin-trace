@@ -29,3 +29,21 @@ class TrajectoryPoint:
     position: np.ndarray  # [x, y, z]
     velocity: np.ndarray  # [vx, vy, vz]
     altitude: float
+
+@dataclass
+class PIDGains:
+    """PID controller gains for each axis"""
+    Kp: float  # Proportional gain
+    Ki: float  # Integral gain
+    Kd: float  # Derivative gain
+
+@dataclass
+class StabilizationConfig:
+    """Configuration for active stabilization"""
+    pitch_gains: PIDGains
+    yaw_gains: PIDGains
+    roll_gains: PIDGains
+    max_deflection: float = np.deg2rad(15)  # Maximum fin deflection (rad)
+    target_pitch: float = 0.0  # Target pitch angle (rad)
+    target_yaw: float = 0.0    # Target yaw angle (rad)
+    target_roll: float = 0.0   # Target roll angle (rad)

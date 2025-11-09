@@ -3,6 +3,7 @@ from typing import List, Tuple, Dict, Any
 from physics_generators import apogee_calculation_generator
 from constants import *
 from data_types import *
+from pid_controller import ActiveStabilizer
 
 class WaypointTracker:
     """Tracks waypoints reached during rocket flight"""
@@ -230,6 +231,143 @@ def run_full_simulation(params: SimulationParams):
             break
     
     return states
+
+def stabilized_flight_simulation(
+    duration: float = 10.0,
+    dt: float = 0.01,
+    disturbance_enabled: bool = True
+):
+    """
+    Example of a stabilized flight simulation.
+    
+    This integrates rotational dynamics with active stabilization.
+    """
+    # Create stabilization configuration
+    # Moderate gains with lower rate damping so PID has effect
+    config = StabilizationConfig(
+        pitch_gains=PIDGains(Kp=3.001, Ki=3.001, Kd=3.002),  # Moderate gains
+        yaw_gains=PIDGains(Kp=3.001, Ki=3.001, Kd=3.002),
+        roll_gains=PIDGains(Kp=1.00001, Ki=1.00001, Kd=1.0001),
+        max_deflection=np.deg2rad(2),  # Max: 5 degrees
+        target_pitch=0.0,  # Level flight
+        target_yaw=0.0,
+        target_roll=0.0
+    )
+    
+    stabilizer = ActiveStabilizer(config)
+    
+    # Initial conditions with disturbance
+    initial_omega = [0.1, 0.05, 0.08] if disturbance_enabled else [0.0, 0.0, 0.0]
+    initial_q = [0.98, 0.05, 0.05, 0.02]  # Slightly off vertical
+    initial_q = initial_q / np.linalg.norm(initial_q)
+    
+    # Rocket properties
+    Ixx, Iyy, Izz = 0.01, 0.01, 0.005  # kg.m^2
+    
+    # Simulation
+    print("Starting stabilized flight simulation...")
+    print(f"Target attitude: pitch=0°, yaw=0°, roll=0°")
+    print(f"Initial disturbance: {np.rad2deg(initial_omega)} deg/s\n")
+    print("DEBUGGING: Watch for moments (M) and angular accelerations (dq)")
+    print("If M is tiny compared to attitude error, stability derivatives are too weak!\n")
+    
+    current_omega = np.array(initial_omega)
+    current_q = np.array(initial_q)
+    t = 0.0
+    
+    results = {
+        'time': [],
+        'roll': [],
+        'pitch': [],
+        'yaw': [],
+        'delta_pitch': [],
+        'delta_yaw': [],
+        'delta_roll': []
+    }
+    
+    num_steps = int(duration / dt)
+    
+    for step in range(num_steps):
+        # Get control commands
+        delta_pitch, delta_yaw, delta_roll = stabilizer.compute_control(current_q, current_omega, t)
+        
+        # Compute moments from control deflections (simplified)
+        # These would come from aero_forces_moments_generator in full sim
+        rho = 1.225  # kg/m^3
+        V = 50.0  # m/s (assumed constant for this example)
+        S = 0.01  # m^2
+        l_ref = 0.3  # m
+        q_dyn = 0.5 * rho * V**2
+        
+        # Control moments
+        L_mom = q_dyn * S * l_ref * 0.2 * delta_roll
+        M = q_dyn * S * l_ref * (-1.5) * delta_pitch
+        N = q_dyn * S * l_ref * (-1.5) * delta_yaw
+        
+        # Without natural stability, the rocket will never converge
+        p, q_rate, r = current_omega
+        
+        # Calculate angle of attack and sideslip for stability
+        u = V  # Assume mostly forward velocity
+        w_aero = 5.0 * np.sin(stabilizer.euler_from_quaternion(current_q)[1])  # From pitch
+        v_aero = 5.0 * np.sin(stabilizer.euler_from_quaternion(current_q)[2])  # From yaw
+        
+        alpha = np.arctan2(w_aero, u) if abs(u) > 1e-6 else 0.0
+        beta = np.arctan2(v_aero, u) if abs(u) > 1e-6 else 0.0
+        
+        # Add natural aerodynamic stability (VERY IMPORTANT!)
+        # Without this, control alone cannot stabilize
+        C_malpha = -40.0  # Pitch stability (must be negative and strong)
+        C_nbeta = -40.0   # Yaw stability (must be negative and strong)
+        C_lp = -15.5      # Roll damping
+        C_mq = -11.0      # Pitch damping
+        C_nr = -11.0      # Yaw damping
+        
+        M += q_dyn * S * l_ref * (C_malpha * alpha + C_mq * q_rate * l_ref / V)
+        N += q_dyn * S * l_ref * (C_nbeta * beta + C_nr * r * l_ref / V)
+        L_mom += q_dyn * S * l_ref * (C_lp * p * l_ref / V)
+        
+        # Angular accelerations (Euler's equations)
+        dp = ((Iyy - Izz) * q_rate * r) / Ixx + L_mom / Ixx
+        dq = ((Izz - Ixx) * p * r) / Iyy + M / Iyy
+        dr = ((Ixx - Iyy) * p * q_rate) / Izz + N / Izz
+        
+        # Update omega
+        current_omega += np.array([dp, dq, dr]) * dt
+        
+        # Update quaternion
+        qw, qx, qy, qz = current_q
+        dq_w = -0.5 * (qx * p + qy * q_rate + qz * r)
+        dq_x = 0.5 * (qw * p - qz * q_rate + qy * r)
+        dq_y = 0.5 * (qz * p + qw * q_rate - qx * r)
+        dq_z = 0.5 * (-qy * p + qx * q_rate + qw * r)
+        current_q += np.array([dq_w, dq_x, dq_y, dq_z]) * dt
+        current_q /= np.linalg.norm(current_q)
+        
+        # Store results
+        phi, theta, psi = stabilizer.euler_from_quaternion(current_q)
+        results['time'].append(t)
+        results['roll'].append(np.rad2deg(phi))
+        results['pitch'].append(np.rad2deg(theta))
+        results['yaw'].append(np.rad2deg(psi))
+        results['delta_pitch'].append(np.rad2deg(delta_pitch))
+        results['delta_yaw'].append(np.rad2deg(delta_yaw))
+        results['delta_roll'].append(np.rad2deg(delta_roll))
+        
+        # Print status every second with detailed diagnostics
+        if step % int(1.0 / dt) == 0:
+            status = stabilizer.get_status(current_q, current_omega)
+            print(f"\n=== t={t:.1f}s ===")
+            print(f"Attitude: Pitch={status['pitch_deg']:6.2f}° Yaw={status['yaw_deg']:6.2f}° Roll={status['roll_deg']:6.2f}°")
+            print(f"Rates:    p={status['roll_rate_deg_s']:6.2f}°/s q={status['pitch_rate_deg_s']:6.2f}°/s r={status['yaw_rate_deg_s']:6.2f}°/s")
+            print(f"Control:  δp={np.rad2deg(delta_pitch):5.2f}° δy={np.rad2deg(delta_yaw):5.2f}° δr={np.rad2deg(delta_roll):5.2f}°")
+            print(f"Moments:  L={L_mom:.4f} M={M:.4f} N={N:.4f}")
+            print(f"Accel:    dp={dp:.4f} dq={dq:.4f} dr={dr:.4f}")
+        
+        t += dt
+    
+    print("\nSimulation complete!")
+    return results
 
 # Example usage
 if __name__ == "__main__":

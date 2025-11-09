@@ -12,21 +12,25 @@ def generate_plots(params: SimulationParams) -> None:
 def generate_attitude_plot() -> None:
     """Generate plot for attitude angles (roll, pitch, yaw)."""
     print("\nDisplaying Plot 1: Attitude Angles...")
+
+    results = simulator.stabilized_flight_simulation(duration=10.0, disturbance_enabled=True)
+
     fig1, axs = plt.subplots(3, 1, figsize=(12, 10), num=1)
     fig1.suptitle('Rocket Attitude vs Time', fontsize=14)
     axs[0].set_ylabel('Roll Angle [°]')
-    axs[0].set_ylim(-359, 359)
     axs[0].grid(True)
     axs[0].legend()
+    axs[0].plot(results['time'], results['roll'], 'b-', label='Roll', linewidth=2)
     axs[1].set_ylabel('Pitch Angle [°]')
-    axs[1].set_ylim(-45, 45)
+    axs[1].set_ylim(-10, 10)
     axs[1].grid(True)
     axs[1].legend()
+    axs[1].plot(results['time'], results['pitch'], 'g-', label='Yaw', linewidth=2)
     axs[2].set_ylabel('Yaw Angle [°]')
     axs[2].set_xlabel('Time [s]')
-    axs[2].set_ylim(-45, 45)
     axs[2].grid(True)
     axs[2].legend()
+    axs[2].plot(results['time'], results['yaw'], 'g-', label='Yaw', linewidth=2)
     plt.tight_layout()
 
 def generate_trajectory_plot(params: SimulationParams) -> None:
